@@ -11,6 +11,9 @@ import Data.Maybe (fromMaybe)
 import System.IO (hFlush, stdout)
 import System.Random (randomRIO)
 
+import Data.Char.Block (Row(..))
+import Data.Char.Braille (Braille(..), braille)
+
 import FRP.Rhine hiding (average)
 
 import Data.AffineSpace
@@ -125,16 +128,40 @@ boidsBehavior timescale boids0 = feedback boids0 $ proc ((), boids) -> do
 
 -- Rendering logic.
 
-type Screen = V.Vector (V.Vector Bool)
+emptyRow :: Row Bool
+emptyRow = Row { left = False, right = False }
+
+updateRow :: Int -> a -> Row a -> Row a
+updateRow 0 x (Row { .. }) = Row { left = x, right = right }
+updateRow 1 x (Row { .. }) = Row { left = left, right = x }
+updateRow i _            _ = error $ "index " ++ show i ++ " is out of bounds for a row!"
+
+emptyBraille :: Braille Bool
+emptyBraille = Braille { row1 = emptyRow, row2 = emptyRow, row3 = emptyRow, row4 = emptyRow }
+
+updateBraille :: Int -> Int -> a -> Braille a -> Braille a
+updateBraille 0 j x b@(Braille { .. }) = b { row1 = updateRow j x row1 }
+updateBraille 1 j x b@(Braille { .. }) = b { row2 = updateRow j x row2 }
+updateBraille 2 j x b@(Braille { .. }) = b { row3 = updateRow j x row3 }
+updateBraille 3 j x b@(Braille { .. }) = b { row4 = updateRow j x row4 }
+updateBraille i _ _                  _ = error $ "row index " ++ show i ++ " is out of bounds for a braille!"
+
+type Screen = V.Vector (V.Vector (Braille Bool))
 
 screenSize :: Int
-screenSize = 40
+screenSize = 200
 
 blankScreen :: Screen
-blankScreen = V.replicate screenSize (V.replicate screenSize False)
+blankScreen = V.replicate (screenSize `div` 4) (V.replicate (screenSize `div` 2) emptyBraille)
+
+updateAt :: (a -> a) -> Int -> V.Vector a -> V.Vector a
+updateAt f i v = v V.// [(i, f (v V.! i))]
+
+updateScreen :: Int -> Int -> Bool -> Screen -> Screen
+updateScreen i j b = updateAt (updateAt (updateBraille (i `mod` 4) (j `mod` 2) b) (j `div` 2)) (i `div` 4)
 
 printScreen :: Screen -> IO ()
-printScreen = traverse_ (putStrLn . foldr ((:) . bool ' ' '.') "")
+printScreen = traverse_ (putStrLn . foldr ((:) . braille) "")
 
 quantizePos :: Point2 Double -> Maybe (Int, Int)
 quantizePos (Point2 x y) = (,) <$> q x <*> q y
@@ -142,12 +169,9 @@ quantizePos (Point2 x y) = (,) <$> q x <*> q y
           | -1.0 < z && z < 1.0 = Just (round ((z + 1.0) / 2.0 * fromIntegral (screenSize - 1)))
           | otherwise           = Nothing
 
-updateAt :: (a -> a) -> Int -> V.Vector a -> V.Vector a
-updateAt f i v = v V.// [(i, f (v V.! i))]
-
 renderBoid :: Boid -> Screen -> Screen
 renderBoid (Boid { .. })
-  | Just (i, j) <- quantizePos boidPos = updateAt (updateAt (const True) j) i
+  | Just (i, j) <- quantizePos boidPos = updateScreen i j True
   | otherwise                          = id
 
 renderBoids :: [Boid] -> Screen
@@ -168,7 +192,7 @@ randomBoid = mkBoid <$> (Point2 <$> randomRIO (-1.0, 1.0) <*> randomRIO (-1.0, 1
 
 main :: IO ()
 main = do
-  initialBoids <- replicateM 50 randomBoid
+  initialBoids <- replicateM 500 randomBoid
   flow $
     (boidsBehavior 10 initialBoids @@ waitClock @25)
     >-- keepLast initialBoids

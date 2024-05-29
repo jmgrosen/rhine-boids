@@ -73,6 +73,7 @@ executable rhine-boids
                     , simple-affine-space ^>=0.2.1
                     , vector ^>=0.13.1
                     , random ^>=1.2.1
+                    , unicode-tricks ^>=0.14.1.0
 
     -- Directories containing source files.
     hs-source-dirs:   app
